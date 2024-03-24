@@ -69,7 +69,7 @@ async def send_titles(message: types.Message):
         connection = await connect_to_database()
 
         # Получаем все заголовки из базы данных
-        titles = await connection.fetch("SELECT title, post_id FROM post_canal")
+        titles = await connection.fetch("SELECT title, url FROM content")
         num = 0
         # Отправляем заголовки пользователю
         if titles:
@@ -77,11 +77,12 @@ async def send_titles(message: types.Message):
                 num += 1
 
                 print(num)
-                await message.answer(f"{title['title'][:200]}\n{title['post_id']}", parse_mode=None, disable_web_page_preview=True)
+                await message.answer(f"{title['title'][:200]}\n<a href='{title['url']}'>Смотреть видео</a>",
+                                     parse_mode='HTML', disable_web_page_preview=True)
                 await message.answer('-----------------------------------')
                 # Добавляем задержку перед отправкой следующего сообщения (в данном случае 1 секунду)
                 await asyncio.sleep(0.5)
-                if num == 30:
+                if num == 300:
                     break
 
         else:
@@ -101,22 +102,41 @@ async def send_echo(message: Message):
     try:
         # Получаем слово для поиска из сообщения пользователя
         search_word = message.text
+        print(f'ищем {search_word}')
 
         # Подключаемся к базе данных
         connection = await connect_to_database()
 
         # Выполняем полнотекстовый поиск в базе данных по полю title
+        # search_query = """
+        #     SELECT title, url FROM content
+        #     WHERE to_tsvector('russian', post) @@ to_tsquery('russian', $1)
+        # """
+        # Запрос с показом текста с выделением и сопутствующими словами
         search_query = """
-            SELECT title, post_id FROM post_canal
-            WHERE to_tsvector('russian', title) @@ to_tsquery('russian', $1)
-        """
-        search_results = await connection.fetch(search_query, search_word)
+             SELECT  ts_headline(
+            'russian',
+            title,
+            to_tsquery('russian', $1),
+            'StartSel=<u><i>🔻, StopSel=</i></u>🔻, MaxWords=35, MinWords=15,HighlightAll=true')
 
+
+             title, url FROM content
+             WHERE to_tsvector('russian', title) @@ to_tsquery('russian', $1)
+        """
+
+
+
+        search_results = await connection.fetch(search_query, search_word)
+        print(f'Найдено - {search_results}')
         # Отправляем результаты поиска пользователю
         if search_results:
             for result in search_results:
-                await message.answer(f"{result['title'][:200]}\n{result['post_id']}", parse_mode=None, disable_web_page_preview=True)
-                await message.answer('◽◽◽◽◽◽◽◽◽')
+                #await message.answer(f"{result['title'][:200]}\n{result['url']}", parse_mode=types.ParseMode.HTML, disable_web_page_preview=True)
+                await message.answer(f"{result['title'][:200]}\n<a href='{result['url']}'>Видео</a>",
+                                     parse_mode="HTML", disable_web_page_preview=True)
+                #await message.answer('◽◽◽◽◽◽◽◽◽')
+                await message.answer('______________')
         else:
             await message.answer("По вашему запросу ничего не найдено.")
     except IndexError:
