@@ -55,6 +55,10 @@ async def send_titles(message):
                 await bot.send_message(message.chat.id, title['title'])
         else:
             await bot.send_message(message.chat.id, "Заголовки не найдены в базе данных.")
+
+    except asyncpg.exceptions.PostgresError as pg_error:
+        # обработка ошибок, связанных с PostgreSQL
+        print("Ошибка PostgreSQL: %s", pg_error)
     except Exception as e:
         print("Error:", e)
     finally:
