@@ -10,10 +10,21 @@ from aiogram.types import (KeyboardButton, Message, ReplyKeyboardMarkup,
 #from aiogram.utils import executor
 import nats
 import ast
+import aiocron
 from nats.errors import TimeoutError
+from video_subtitr_API import  check_and_add_new_videos
+
 
 print('запуск бота')
-
+# Планируем задачу на каждый день в 15:40
+@aiocron.crontab("*/1 * * * *")
+async def scheduled_check():
+    logger.info("Запуск проверки новых видео")
+    try:
+        print('сработал crontab')
+        #await check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
+    except Exception as e:
+        logger.error(f"Error during scheduled check: {e}")
 
 # Установка уровня логирования
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +63,7 @@ async def message_handler(msg):
 async def send_notification(video_id,  video_title):
     # Логика отправки уведомления пользователю
     # Здесь вы можете явно указать chat_id для двух пользователей для отладки
-    selected_chat_ids = ['213697976', '5843027547','297769549']  # [дима,Мик,Ира]Замените на реальные chat_id
+    selected_chat_ids = ['213697976', '5843027547']#,'297769549']  # [дима,Мик,Ира]Замените на реальные chat_id
     print(f"Sending notification to user  about video  {video_id} {video_title}")
     for select_user_id in selected_chat_ids:
         #await message.answer(f"{title['title'][:300]}\n<a href='https://youtube.com/watch?v={title['url']}'>Смотреть видео</a>",
@@ -217,7 +228,10 @@ async def send_echo(message: Message):
 
 
 async def aiogram_bot():
-     await asyncio.gather(dp.start_polling(bot), start_nats_listener())
+    # Запуск запланированных задач
+    scheduled_check.auto_start()
+
+    await asyncio.gather(dp.start_polling(bot), start_nats_listener())
 
 # Запуск бота
 if __name__ == '__main__':

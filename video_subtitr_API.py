@@ -347,12 +347,12 @@ def check_and_add_new_videos(channel_id, channel_tag):
     logging.info(f'Добавлено {new_videos_count} новых видео')
 
 if __name__ == '__main__':
-    #asyncio.run(on_new_video("555555599999", "Новое видео в боте23 ", "channel_Petrik24"))
+    asyncio.run(on_new_video("555555", "Новое видео в боте23 ", "channel_Petrik24"))
 
-    try:
-        check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
-    except HttpError as e:
-        print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
+    # try:
+    #     check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
+    # except HttpError as e:
+    #     print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
 
 # if __name__ == '__main__':
 #     try:
