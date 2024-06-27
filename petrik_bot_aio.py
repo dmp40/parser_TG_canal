@@ -7,6 +7,12 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import (KeyboardButton, Message, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
+#from aiogram.utils import executor
+import nats
+import ast
+from nats.errors import TimeoutError
+
+print('запуск бота')
 
 
 # Установка уровня логирования
@@ -16,6 +22,7 @@ logging.basicConfig(level=logging.INFO)
 from dotenv import load_dotenv
 
 load_dotenv()
+admin_id = "5843027547"  # Mik
 
 # Параметры подключения к базе данных PostgreSQL
 db_host = os.getenv('DB_HOST')
@@ -31,6 +38,36 @@ bot_token = os.getenv('TOKEN')
 bot = Bot(token=bot_token) # токен надо поменять тк пропал аккаунт в телеге с этим токеном
 dp = Dispatcher()
 
+# обработка собщений из NATS
+async def message_handler(msg):
+    #message = eval(msg.data.decode())
+    msg_str = msg.data.decode('utf-8')
+    message = ast.literal_eval(msg_str)
+    video_id = message['video_id']
+    video_title = message['video_title']
+
+    await send_notification(video_id, video_title)
+
+# Функция отправки уведомления
+async def send_notification(video_id,  video_title):
+    # Логика отправки уведомления пользователю
+    # Здесь вы можете явно указать chat_id для двух пользователей для отладки
+    selected_chat_ids = ['213697976', '5843027547','297769549']  # [дима,Мик,Ира]Замените на реальные chat_id
+    print(f"Sending notification to user  about video  {video_id} {video_title}")
+    for select_user_id in selected_chat_ids:
+        #await message.answer(f"{title['title'][:300]}\n<a href='https://youtube.com/watch?v={title['url']}'>Смотреть видео</a>",
+            #parse_mode="HTML", disable_web_page_preview=True)
+        await bot.send_message(select_user_id, f"Новые видео на канале Доктор Утин: {video_id}<a href='https://www.youtube.com/watch?v={video_title}'> Смотреть видео</a>",parse_mode="HTML", disable_web_page_preview=True)
+
+
+# Функция для начала потребления сообщений
+async def start_nats_listener():
+    nc = await nats.connect("nats://localhost:4222")
+    await nc.subscribe("new_videos", cb=message_handler)
+    # nc = await nats.connect("nats://localhost:4222")
+    # js = nc.jetstream()
+    # await js.pull_subscribe("new_videos", cb=message_handler)
+
 
 # Функция для подключения к базе данных PostgreSQL
 async def connect_to_database():
@@ -43,38 +80,46 @@ async def connect_to_database():
     )
 #обработка запроса из нескольких слов
 def process_string(input_string):
-    words = input_string.split()  # Разбиваем строку на слова по пробелу
-    result = ""  # Будущая строка с результатом
+    if '"' in input_string:  # Если есть кавычки в строке
+        input_string = input_string.replace('"', '')  # Убираем кавычки из строки
+        input_string = input_string.replace(' ', '&')  # Заменяем пробелы на &
+    else:
+        words = input_string.split()  # Разбиваем строку на слова по пробелу
+        result = ""  # Будущая строка с результатом
 
-    for i in range(len(words)):
-        if i == len(words) - 1:  # Если это последнее слово
-            result += f"{words[i]}:*"  # Добавляем слово и ":*"
-        else:
-            result += f"{words[i]}:*&"  # Добавляем слово и ":*&"
+        for i in range(len(words)):
+            if i == len(words) - 1:  # Если это последнее слово
+                result += f"{words[i]}:*"  # Добавляем слово и ":*"
+            else:
+                result += f"{words[i]}:*&"  # Добавляем слово и ":*&"
 
-    return result
+        return result
+    return input_string
+
 
 # Обработчик команды /start
 @dp.message(Command(commands=["start"]))
 async def send_welcome(message: types.Message):
     # Создаем клавиатуру с кнопкой "Поиск"
-    button_1 = KeyboardButton(text='Оглавление 🗺')
+    button_1 = KeyboardButton(text='ВидеоМикс 🔄')
     button_2 = KeyboardButton(text='Поиск 👀')
     # Создаем объект клавиатуры, добавляя в него кнопки
     keyboard = ReplyKeyboardMarkup(keyboard=[[button_1, button_2]], resize_keyboard=True)
 
 
-    await message.reply("Привет! Я бот, который выводит содержание полей title из базы данных.", reply_markup=keyboard)
+
+    await message.reply("Привет! Я помогу найти видео с канала  'Доктор Утин'.", reply_markup=keyboard)
 
 # Этот хэндлер будет срабатывать на ответ Поиск
 @dp.message(F.text == 'Поиск 👀')
 async def process_dog_answer(message: Message):
-    await message.answer(text='Введите 1 слово для поиска.\nПример сложного запроса из двух и более:\n'
-                              'сердц&бол\n'
-                              'Поч:*&ко:*' )
+    await message.answer(text='Введите 1-2  слова для поиска.\nМожно  без окончаний: \n'
+                              'например: бол гол\n'
+                              'Покажет видео про головную боль\n'
+                              'Для точного поиска наберите запрос в кавычках\n')
 
 # Этот хэндлер будет срабатывать на ответ оглавление
-@dp.message(F.text == 'Оглавление 🗺')
+@dp.message(F.text == 'ВидеоМикс 🔄')
 async def send_titles(message: types.Message):
     connection = None
     try:
@@ -82,20 +127,22 @@ async def send_titles(message: types.Message):
         connection = await connect_to_database()
 
         # Получаем все заголовки из базы данных
-        titles = await connection.fetch("SELECT title, url FROM content")
+        titles = await connection.fetch("SELECT title, url FROM content_20_04_2024 ORDER BY RANDOM() LIMIT 3")
         num = 0
         # Отправляем заголовки пользователю
+        await message.answer('Три случайных видео')
         if titles:
             for title in titles:
                 num += 1
 
                 print(num)
-                await message.answer(f"{title['title'][:200]}\n<a href='{title['url']}'>Смотреть видео</a>",
-                                     parse_mode='HTML', disable_web_page_preview=True)
+                await message.answer(f"{title['title'][:300]}\n<a href='https://youtube.com/watch?v={title['url']}'>Смотреть видео</a>",
+                                     parse_mode="HTML", disable_web_page_preview=True)
+
                 await message.answer('-----------------------------------')
                 # Добавляем задержку перед отправкой следующего сообщения (в данном случае 1 секунду)
                 await asyncio.sleep(0.5)
-                if num == 300:
+                if num == 10:
                     break
 
         else:
@@ -142,6 +189,8 @@ async def send_echo(message: Message):
 
         search_results = await connection.fetch(search_query, search_word)
         print(f'Найдено - {search_results}')
+        search_num= len(search_results)
+        if search_num > 0: await message.answer(f'Найдено {search_num} видео')
         # Отправляем результаты поиска пользователю
         if search_results:
             for result in search_results:
@@ -158,7 +207,7 @@ async def send_echo(message: Message):
     except asyncpg.exceptions.PostgresError as pg_error:
         # обработка ошибок, связанных с PostgreSQL
         print("Ошибка PostgreSQL: %s", pg_error)
-        await message.reply("Два и более слов набирайте с &")
+        await message.reply(f"Ошибка PostgreSQL:{pg_error}")
     except Exception as e:
         logging.error("Error occurred: %s", e)
     finally:
@@ -167,10 +216,10 @@ async def send_echo(message: Message):
             await connection.close()
 
 
-
-
-
+async def aiogram_bot():
+     await asyncio.gather(dp.start_polling(bot), start_nats_listener())
 
 # Запуск бота
 if __name__ == '__main__':
-    dp.run_polling(bot)
+    #dp.run_polling(bot)
+    asyncio.run(aiogram_bot())

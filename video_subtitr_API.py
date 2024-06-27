@@ -1,17 +1,24 @@
 ''' Модуль заполнения базы  данными о видео с канала
 Канал добавляется по ID
+Также  проверяет есть ли новые видео на канале.
 '''
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import json
+import ssl
+import socket
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 import os
 import psycopg2
-import sqlite3
+import datetime
+import time
+import logging
+import nats
 import asyncio
-import asyncpg
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
 
 # Загрузка переменных окружения из файла .env
 from dotenv import load_dotenv
@@ -36,6 +43,40 @@ def connect_to_database():
         port=db_port,
         database=db_name
     )
+
+#Функция отправки сообщений NATS
+async def on_new_video(video_id, user_id, video_title):
+    nc = await nats.connect("nats://localhost:4222")
+    message = {
+        'video_id': video_id,
+        'user_id': user_id,
+        'video_title': video_title
+    }
+    await nc.publish("new_videos", str(message).encode())
+    await nc.drain()
+
+
+
+# Объявляем глобальную переменную для счетчика
+call_count = 0
+def is_video_id_in_db(video_id):
+    global call_count
+    """Проверяет, есть ли видео ID в базе данных."""
+    call_count += 1  # Увеличиваем счетчик при каждом вызове функции
+    conn = psycopg2.connect(
+        dbname=db_name,
+        user=db_user,
+        password=db_password,
+        host=db_host,
+        port=db_port
+    )
+    cursor = conn.cursor()
+    query = "SELECT 1 FROM content_20_04_2024 WHERE video_id = %s"
+    cursor.execute(query, (video_id,))
+    exists = cursor.fetchone() is not None
+    conn.close()
+    print(exists, call_count)
+    return exists
 
 # создаем базу данных sqlite3
 # with sqlite3.connect("petrik_audio.db") as db:
@@ -65,9 +106,36 @@ def connect_to_database():
 #         db.commit()
 #     return
 
-def add_sql_content(title_a, descript_a, url_a, url_preview_a, duration_a, text_a):
-    #подкл к базе
-    #conn = connect_to_database()
+# def add_sql_content(title_a, descript_a, url_a, url_preview_a, duration_a, text_a):
+#     #подкл к базе
+#     #conn = connect_to_database()
+#     conn = psycopg2.connect(
+#         dbname=db_name,
+#         user=db_user,
+#         password=db_password,
+#         host=db_host,
+#         port=db_port
+#     )
+#     cursor = conn.cursor()
+#     if text_a == 'None':
+#         text_a = 'нет субтитров'
+#     try:
+#         query = """INSERT INTO content_20_04_2024 (title, descript,
+#         url,url_preview, duration, post) VALUES (%s, %s, %s, %s, %s, %s)"""  # ,video.title
+#         data = (title_a, descript_a, url_a, url_preview_a, duration_a, text_a)
+#         # Выполнение запроса
+#         cursor.execute(query, data)
+#         print("Запись успешно добавлена")
+#         conn.commit()
+#     except Exception as e:
+#         print("An error occurred:", e)
+#
+#     finally:
+#         # Закрытие соединения
+#         conn.close()
+#новая функция 10 06 2024
+def add_sql_content(title_a, descript_a, url_a, url_preview_a, duration_a, text_a, video_id, added_date, channel_tag):
+    """Добавляет запись о видео в таблицу content."""
     conn = psycopg2.connect(
         dbname=db_name,
         user=db_user,
@@ -79,18 +147,15 @@ def add_sql_content(title_a, descript_a, url_a, url_preview_a, duration_a, text_
     if text_a == 'None':
         text_a = 'нет субтитров'
     try:
-        query = """INSERT INTO content_20_04_2024 (title, descript, 
-        url,url_preview, duration, post) VALUES (%s, %s, %s, %s, %s, %s)"""  # ,video.title
-        data = (title_a, descript_a, url_a, url_preview_a, duration_a, text_a)
-        # Выполнение запроса
+        query = """INSERT INTO content_20_04_2024 (title, descript, url, url_preview, duration, post, video_id, added_date, channel)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s )"""
+        data = (title_a, descript_a, url_a, url_preview_a, duration_a, text_a, video_id, added_date, channel_tag)
         cursor.execute(query, data)
         print("Запись успешно добавлена")
         conn.commit()
     except Exception as e:
         print("An error occurred:", e)
-
     finally:
-        # Закрытие соединения
         conn.close()
 
 # Функция перевода длительности видео из PT12M40S в час мин сек
@@ -165,7 +230,7 @@ def get_video_transcripts(video_id):
 #cleaned_text = re.findall(r"[а-яА-Я]+", str(data_db[:3]))
 
 
-def get_channel_videos(channel_id):
+def get_channel_videos(channel_id):# функция не используется
     res = youtube.channels().list(id=channel_id, part='contentDetails').execute()
     playlist_id = res['items'][0]['contentDetails']['relatedPlaylists']['uploads']
     videos = []
@@ -222,13 +287,81 @@ def get_channel_videos(channel_id):
         if n_video > 1000:
             break
     print(f'Всего на канале {n_video} видео')
+def check_and_add_new_videos(channel_id, channel_tag):
+    """Проверяет наличие новых видео на канале и добавляет их данные в базу."""
+    try:
+        res = youtube.channels().list(id=channel_id, part='contentDetails').execute()
+        playlist_id = res['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+    except Exception as e:
+        logging.error(f"Ошибка при получении списка каналов: {e}")
+        return
 
+    videos = []
+    next_page_token = None
+
+    while True:
+        try:
+            res = youtube.playlistItems().list(playlistId=playlist_id, part='snippet', maxResults=50, pageToken=next_page_token).execute()
+            videos.extend(res['items'])
+            next_page_token = res.get('nextPageToken')
+            if next_page_token is None:
+                break
+        except Exception as e:
+            logging.error(f"Ошибка при получении списка видео: {e}")
+            return
+
+    new_videos_count = 0
+    for video in videos:
+        video_id = video['snippet']['resourceId']['videoId']
+        if not is_video_id_in_db(video_id):
+            attempts = 0
+            success = False
+            while attempts < 3 and not success:
+                try:
+                    video_title = video['snippet']['title']
+                    video_description = video['snippet']['description']
+                    video_published_at = video['snippet']['publishedAt']  # Получаем дату публикации видео
+
+                    video_info = youtube.videos().list(part="snippet,contentDetails", id=video_id).execute()
+                    video_snippet = video_info['items'][0]['snippet']
+                    video_content_details = video_info['items'][0]['contentDetails']
+
+                    video_duration = iso8601_to_minutes_seconds(video_content_details['duration'])
+                    video_thumbnail_url = str(video_snippet['thumbnails']['default']['url'])
+                    subtitles = str(get_video_transcripts(video_id))
+                                    #wWSSSSSSSza (title_a, descript_a, url_a, url_preview_a, duration_a, text_a, video_id, added_date):
+                    add_sql_content(video_title, video_description, video_id, video_thumbnail_url, video_duration, subtitles, video_id, video_published_at, channel_tag)
+                    # Посылаем сообщение в NATS
+                    asyncio.run(on_new_video(video_title, video_description, video_id))
+                    new_videos_count += 1
+                    logging.info(f'Добавлено {new_videos_count} новых видео')
+                    success = True
+                except (HttpError, ssl.SSLError, socket.error) as e:
+                    attempts += 1
+                    logging.error(f'Ошибка при обработке видео {video_id} (попытка {attempts}): {e}')
+                    time.sleep(5)  # Ждать немного перед повторной попыткой
+                except Exception as e:
+                    logging.error(f'Неизвестная ошибка при обработке видео {video_id}: {e}')
+                    break
+
+    logging.info(f'Добавлено {new_videos_count} новых видео')
 
 if __name__ == '__main__':
+    #asyncio.run(on_new_video("555555599999", "Новое видео в боте23 ", "channel_Petrik24"))
+
     try:
-        get_channel_videos("UCmyE72X4HsC7XD-z6QIQpzw")  # ID канала petrik UC8k2L8NWKFOk6eFMUUpoCEw
-        # ID Доктор Евдокименко "UCmyE72X4HsC7XD-z6QIQpzw"
-        # ID ищем в показать код на главной странице  канал Ищем Ctrl+f ChannelId
+        check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
     except HttpError as e:
         print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
 
+# if __name__ == '__main__':
+#     try:
+#         get_channel_videos("UC8k2L8NWKFOk6eFMUUpoCEw")  # ID канала petrik UC8k2L8NWKFOk6eFMUUpoCEw
+#         # ID Доктор Евдокименко "UCmyE72X4HsC7XD-z6QIQpzw"
+#           ID Доктор Утин "UCY649zJeJVhhJa-rvWThZ2g"
+#         # ID ERA RUN Когда твой тренер доктор "UC-7rh_mZOLWcBKMbMFieOGA"
+#         # ID ищем в показать код на главной странице  канал Ищем Ctrl+f ChannelId
+#         # или еще проще О канале -> Поделиться каналом -> Скопировать идентификатор канала.
+#     except HttpError as e:
+#         print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
+#
