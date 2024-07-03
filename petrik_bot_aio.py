@@ -12,22 +12,23 @@ import nats
 import ast
 import aiocron
 from nats.errors import TimeoutError
-from video_subtitr_API import  check_and_add_new_videos
+from video_subtitr_API import  check_and_add_new_videos ,on_new_video
 
 
 print('запуск бота')
 # Планируем задачу на каждый день в 15:40
-@aiocron.crontab("*/1 * * * *")
+@aiocron.crontab("*/1  * * * *")
 async def scheduled_check():
-    logger.info("Запуск проверки новых видео")
+    logging.info("Запуск проверки новых видео")
     try:
         print('сработал crontab')
         #await check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
+        await  on_new_video("555555", "Новое видео в боте23 ", "channel_Petrik24")
     except Exception as e:
-        logger.error(f"Error during scheduled check: {e}")
+        logging.error(f"Error during scheduled check: {e}")
 
 # Установка уровня логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 # Загрузка переменных окружения из файла .env
 from dotenv import load_dotenv
@@ -229,11 +230,14 @@ async def send_echo(message: Message):
 
 async def aiogram_bot():
     # Запуск запланированных задач
-    scheduled_check.auto_start()
 
+    #scheduled_check.start()
     await asyncio.gather(dp.start_polling(bot), start_nats_listener())
 
 # Запуск бота
 if __name__ == '__main__':
     #dp.run_polling(bot)
-    asyncio.run(aiogram_bot())
+    #asyncio.run(aiogram_bot())
+    loop = asyncio.get_event_loop()
+
+    loop.run_until_complete(aiogram_bot())
