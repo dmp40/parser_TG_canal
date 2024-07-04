@@ -334,6 +334,8 @@ def check_and_add_new_videos(channel_id, channel_tag):
                     # Посылаем сообщение в NATS
                     asyncio.run(on_new_video(video_title, video_description, video_id))
                     new_videos_count += 1
+                    if new_videos_count >= 2:
+                        break
                     logging.info(f'Добавлено {new_videos_count} новых видео')
                     success = True
                 except (HttpError, ssl.SSLError, socket.error) as e:
