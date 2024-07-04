@@ -1,3 +1,5 @@
+'''Ушел в поход 04,07, 24
+cron работает  базу обновляет но не приходит уведомление'''
 import asyncio
 import asyncpg
 import os
