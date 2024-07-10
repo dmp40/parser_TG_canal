@@ -16,6 +16,7 @@ import time
 import logging
 import nats
 import asyncio
+import aiocron
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +56,9 @@ async def on_new_video(video_id, user_id, video_title):
     await nc.publish("new_videos", str(message).encode())
     await nc.drain()
 
+# Тестирование функции
+async def test():
+    await on_new_video("NDTZB_LGv68", "user123", "Sample Video Title")
 
 
 # Объявляем глобальную переменную для счетчика
@@ -151,7 +155,7 @@ def add_sql_content(title_a, descript_a, url_a, url_preview_a, duration_a, text_
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s )"""
         data = (title_a, descript_a, url_a, url_preview_a, duration_a, text_a, video_id, added_date, channel_tag)
         cursor.execute(query, data)
-        print("Запись успешно добавлена")
+        print("Запись успешно добавлена в базу")
         conn.commit()
     except Exception as e:
         print("An error occurred:", e)
@@ -287,7 +291,7 @@ def get_channel_videos(channel_id):# функция не используетс�
         if n_video > 1000:
             break
     print(f'Всего на канале {n_video} видео')
-def check_and_add_new_videos(channel_id, channel_tag):
+async def check_and_add_new_videos(channel_id, channel_tag):
     """Проверяет наличие новых видео на канале и добавляет их данные в базу."""
     try:
         res = youtube.channels().list(id=channel_id, part='contentDetails').execute()
@@ -332,7 +336,9 @@ def check_and_add_new_videos(channel_id, channel_tag):
                                     #wWSSSSSSSza (title_a, descript_a, url_a, url_preview_a, duration_a, text_a, video_id, added_date):
                     add_sql_content(video_title, video_description, video_id, video_thumbnail_url, video_duration, subtitles, video_id, video_published_at, channel_tag)
                     # Посылаем сообщение в NATS
-                    asyncio.run(on_new_video(video_title, video_description, video_id))
+                    #await on_new_video("66666", "Новое видео в боте23 ", "channel_Petrik24")
+                    # asyncio.run(test()) # тестовое сообщение
+                    await on_new_video(video_title, video_description, video_id)
                     new_videos_count += 1
                     if new_videos_count >= 2:
                         break
@@ -348,13 +354,37 @@ def check_and_add_new_videos(channel_id, channel_tag):
 
     logging.info(f'Добавлено {new_videos_count} новых видео')
 
-if __name__ == '__main__':
-    #asyncio.run(on_new_video("555555", "Новое видео в боте23 ", "channel_Petrik24"))
+# Планируем задачу на каждый день в 21:22
+@aiocron.crontab("41 21 * * *")
+async def scheduled_check_new():
+    logging.info("Запуск проверки новых видео")
+    try:
+        print('сработал crontab')
+        await check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
+    except Exception as e:
+        logging.error(f"Error during scheduled check: {e}")
 
-     try:
-         check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin")
-     except HttpError as e:
-         print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
+# Пример основной функции
+async def main():
+    # Этот цикл удерживает ваш скрипт работающим, пока планировщик выполняет задачи
+    logging.info("Запуск основного цикла")
+    while True:
+        await asyncio.sleep(3600)
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except HttpError as e:
+        print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
+
+
+# if __name__ == '__main__': это работало плохо когда запускал из модуля бота
+#     #asyncio.run(on_new_video("555555", "Новое видео в боте23 ", "channel_Petrik24"))
+#
+#      try:
+#          asyncio.run(check_and_add_new_videos("UCY649zJeJVhhJa-rvWThZ2g", "utin"))
+#      except HttpError as e:
+#          print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
 
 # if __name__ == '__main__':
 #     try:

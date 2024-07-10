@@ -1,5 +1,6 @@
 '''Ушел в поход 04,07, 24
-cron работает  базу обновляет но не приходит уведомление'''
+cron работает  базу обновляет но не приходит уведомление
+И не могу запушить на git'''
 import asyncio
 import asyncpg
 import os
@@ -19,7 +20,9 @@ from video_subtitr_API import  check_and_add_new_videos ,on_new_video
 
 print('запуск бота')
 # Планируем задачу на каждый день в 15:40
-@aiocron.crontab("*/30  * * * *")
+#@aiocron.crontab("*/30  * * * *") # каждые 30 мин
+@aiocron.crontab("59 20 * * *") # 13-30 мин
+
 async def scheduled_check():
     logging.info("Запуск проверки новых видео")
     try:
