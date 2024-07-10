@@ -355,7 +355,7 @@ async def check_and_add_new_videos(channel_id, channel_tag):
     logging.info(f'Добавлено {new_videos_count} новых видео')
 
 # Планируем задачу на каждый день в 21:22
-@aiocron.crontab("41 21 * * *")
+@aiocron.crontab("02 23 * * *")
 async def scheduled_check_new():
     logging.info("Запуск проверки новых видео")
     try:
@@ -373,7 +373,9 @@ async def main():
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+        #asyncio.run(main())
     except HttpError as e:
         print(f'An HTTP error {e.resp.status} occurred:\n{e.content}')
 
